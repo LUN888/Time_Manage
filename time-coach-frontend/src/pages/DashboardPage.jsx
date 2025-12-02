@@ -324,7 +324,7 @@ export default function DashboardPage() {
   return (
     <div className="dashboard-shell">
       {/* header */}
-      <div
+            <div
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -342,21 +342,57 @@ export default function DashboardPage() {
             AI 學習時間助理 · 深色專注模式
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn-outline" onClick={() => navigate("/stats")}>
-            統計圖表
-          </button>
+
+        {/* ↑ 左邊問候不動，下面是改大的四顆按鈕 */}
+        <div
+          style={{
+            display: "flex",
+            gap: 12, // 按鈕之間距離大一點
+          }}
+        >
           <button
             className="btn-outline"
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              borderRadius: 999,
+            }}
+            onClick={() => navigate("/stats")}
+          >
+            統計圖表
+          </button>
+
+          <button
+            className="btn-outline"
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              borderRadius: 999,
+            }}
             onClick={() => navigate("/reflection")}
           >
             每日反思
           </button>
-          <button className="btn-outline" onClick={() => navigate("/coach")}>
-            AI 教練
-          </button>
+
           <button
             className="btn-outline"
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              borderRadius: 999,
+            }}
+            onClick={() => navigate("/coach")}
+          >
+            AI 教練
+          </button>
+
+          <button
+            className="btn-outline"
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              borderRadius: 999,
+            }}
             onClick={() => {
               logout();
               navigate("/login");
@@ -638,7 +674,7 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* 今日計畫列表 */}
+            {/* 今日計畫列表（卡片） */}
             {plansError && (
               <p style={{ color: "salmon", fontSize: 13 }}>{plansError}</p>
             )}
@@ -649,14 +685,35 @@ export default function DashboardPage() {
                 今天還沒有計畫。
               </p>
             ) : (
-              <ul style={{ fontSize: 13, paddingLeft: 18 }}>
-                {plans.map((p) => (
-                  <li key={p._id}>
-                    [{p.priority}] {p.title}（{p.subject || "未填科目"}） -{" "}
-                    {p.status}
-                  </li>
-                ))}
-              </ul>
+              <div className="plans-grid">
+                {plans.map((p) => {
+                  const priorityClass =
+                    p.priority === "must"
+                      ? "plan-pill plan-pill-priority-must"
+                      : p.priority === "should"
+                      ? "plan-pill plan-pill-priority-should"
+                      : "plan-pill plan-pill-priority-nice";
+
+                  return (
+                    <div key={p._id} className="plan-card">
+                      <div className="plan-title">{p.title}</div>
+                      <div className="plan-sub">
+                        {p.subject || "未填科目"} · 預估 {p.estimatedMinutes} 分鐘
+                      </div>
+                      <div className="plan-meta">
+                        <span className={priorityClass}>
+                          {p.priority === "must"
+                            ? "必做"
+                            : p.priority === "should"
+                            ? "建議"
+                            : "有空再做"}
+                        </span>
+                        <span className="plan-pill plan-pill-status">{p.status}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </section>
         </div>
