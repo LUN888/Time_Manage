@@ -27,19 +27,15 @@ export default function DashboardPage() {
   const [plansError, setPlansError] = useState("");
   const [plansLoading, setPlansLoading] = useState(true);
 
-  const [planForm, setPlanForm] = useState({
-    title: "",
-    subject: "",
-    estimatedMinutes: 60,
-    priority: "must",
-    date: todayStr,
-  });
-  const [creatingPlan, setCreatingPlan] = useState(false);
 
-  // 語音 & AI 解析
+  // ---- 自然語言新增計畫（新的） ----
+  const [nlInput, setNlInput] = useState("");         // 使用者自然語言輸入
+  const [nlParsing, setNlParsing] = useState(false);   // 解析中
+  const [nlPreview, setNlPreview] = useState(null);    // AI 單筆預覽
+  const [nlCreating, setNlCreating] = useState(false); // 建立中
+
+  // 語音解析
   const [voiceText, setVoiceText] = useState("");
-  const [parsedPlans, setParsedPlans] = useState([]); // AI 解析出的任務
-  const [parsingPlans, setParsingPlans] = useState(false);
 
   // AI 自動排程的結果
   const [autoSchedule, setAutoSchedule] = useState(null); // { date, schedule, summary }
@@ -100,112 +96,108 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, navigate]);
 
-  // ---- 計畫表單處理 ----
-  const handlePlanChange = (e) => {
-    const { name, value } = e.target;
-    setPlanForm((f) => ({ ...f, [name]: value }));
-  };
 
-  const handleCreatePlan = async (e) => {
-    e.preventDefault();
-    if (!planForm.title) return;
-    setCreatingPlan(true);
-    try {
-      await api.post("/api/plans", {
-        ...planForm,
-        estimatedMinutes: Number(planForm.estimatedMinutes),
-      });
-      setPlanForm((f) => ({ ...f, title: "" }));
-      await fetchPlans();
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.error || "新增計畫失敗");
-    } finally {
-      setCreatingPlan(false);
-    }
-  };
+    // 🎤 語音轉文字功能
+    const startListening = () => {
+      const SpeechRecognition =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  // 🎤 語音轉文字功能
-  const startListening = () => {
-    const SpeechRecognition =
-      window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("你的瀏覽器不支援語音輸入（建議使用 Chrome）");
+        return;
+      }
 
-    if (!SpeechRecognition) {
-      alert("你的瀏覽器不支援語音輸入（建議使用 Chrome）");
+      const recognition = new SpeechRecognition();
+      recognition.lang = "zh-TW";
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = (event) => {
+        const text = event.results[0][0].transcript;
+        console.log("語音辨識結果：", text);
+
+        setVoiceText(text);  // 顯示給使用者看
+        setNlInput(text);    // 把語音塞到自然語言輸入框
+      };
+
+      recognition.onerror = (e) => {
+        console.error("語音辨識錯誤：", e.error);
+      };
+
+      recognition.start();
+    };
+
+
+  //---- 自然語言新增計畫功能的處理函式 ----
+  // 🧠（新增）解析自然語言成 1 筆預覽資料  
+  async function handleNLParse() {
+  if (!nlInput.trim()) return;
+
+  setNlParsing(true);
+  try {
+    const res = await api.post("/api/plans/parse", {
+      text: nlInput,
+      date: todayStr,
+    });
+
+    const plans = res.data.plans || [];
+    if (plans.length === 0) {
+      alert("AI 無法解析這段內容，請換種說法試試看");
       return;
     }
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = "zh-TW";
-    recognition.continuous = false;
-    recognition.interimResults = false;
+    // ⭐ 你目前要「單筆預覽」，所以只拿第一筆
+    setNlPreview(plans[0]);
 
-    recognition.onresult = (event) => {
-      const text = event.results[0][0].transcript;
-      console.log("語音辨識結果：", text);
-      setVoiceText(text);
+  } catch (err) {
+    console.error(err);
+    alert("AI 解析失敗");
+  } finally {
+    setNlParsing(false);
+  }
+}
 
-      // 先填到任務名稱欄位
-      setPlanForm((prev) => ({
-        ...prev,
-        title: text,
-      }));
-    };
+// ✔（新增）按下「確認建立」→ 寫入資料庫 → 更新前端
+async function handleNLConfirm() {
+  if (!nlPreview) return;
 
-    recognition.onerror = (e) => {
-      console.error("語音辨識錯誤：", e.error);
-    };
+  setNlCreating(true);
+  try {
+    const res = await api.post("/api/plans", {
+      ...nlPreview,
+    });
 
-    recognition.start();
-  };
+    // 加入左邊卡片列表
+    setPlans((prev) => [...prev, res.data]);
 
-  // 🧠 呼叫後端 AI 解析語音/文字成多個任務
-  const handleParseVoiceToPlans = async () => {
-    const textToParse = voiceText || planForm.title;
-    if (!textToParse) {
-      alert("請先用語音或文字輸入內容再解析");
-      return;
-    }
-    setParsingPlans(true);
-    try {
-      const res = await api.post("/api/plans/parse", {
-        text: textToParse,
-        date: todayStr,
-      });
-      setParsedPlans(res.data.plans || []);
-      if (!res.data.plans || res.data.plans.length === 0) {
-        alert("AI 沒有解析出任何任務，請換種說法試試看。");
-      }
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.error || "AI 解析失敗");
-    } finally {
-      setParsingPlans(false);
-    }
-  };
+    // 清空預覽與輸入
+    setNlPreview(null);
+    setNlInput("");
 
-  // ✅ 確認 AI 解析出的任務並全部新增
-  const handleConfirmParsedPlans = async () => {
-    if (!parsedPlans.length) return;
-    try {
-      for (const p of parsedPlans) {
-        await api.post("/api/plans", {
-          title: p.title,
-          subject: p.subject,
-          estimatedMinutes: p.estimatedMinutes,
-          priority: p.priority,
-          date: p.date,
-        });
-      }
-      setParsedPlans([]);
-      setVoiceText("");
-      await fetchPlans();
-      alert("已根據 AI 解析結果建立所有任務！");
-    } catch (err) {
-      console.error(err);
-      alert("建立任務時發生錯誤，請稍後再試");
-    }
-  };
+  } catch (err) {
+    console.error(err);
+    alert("建立任務失敗，請稍後再試");
+  } finally {
+    setNlCreating(false);
+  }
+}
+
+// ---- 刪除計畫卡片 ----
+async function handleDeletePlan(id) {
+  if (!window.confirm("確定要刪除這個計畫嗎？")) return;
+
+  try {
+    await api.delete(`/api/plans/${id}`);
+
+    // 前端即時更新
+    setPlans((prev) => prev.filter((p) => p._id !== id));
+  } catch (err) {
+    console.error(err);
+    alert("刪除失敗");
+  }
+}
+
+
 
   // ---- 專注紀錄處理 ----
   const handleSessionChange = (e) => {
@@ -543,136 +535,80 @@ export default function DashboardPage() {
               </h2>
             </div>
 
-            {/* 表單 */}
-            <form
-              onSubmit={handleCreatePlan}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1.4fr 1fr",
-                gap: 10,
-                marginBottom: 12,
-              }}
-            >
-              <div>
-                <label className="label-light">任務名稱</label>
-                <input
-                  name="title"
-                  className="input-dark"
-                  value={planForm.title}
-                  onChange={handlePlanChange}
-                  required
-                />
-              </div>
-              <div>
-                <label className="label-light">科目</label>
-                <input
-                  name="subject"
-                  className="input-dark"
-                  value={planForm.subject}
-                  onChange={handlePlanChange}
-                />
-              </div>
-              <div>
-                <label className="label-light">預估時間（分鐘）</label>
-                <input
-                  name="estimatedMinutes"
-                  type="number"
-                  min="10"
-                  className="input-dark"
-                  value={planForm.estimatedMinutes}
-                  onChange={handlePlanChange}
-                />
-              </div>
-              <div>
-                <label className="label-light">優先級</label>
-                <select
-                  name="priority"
-                  className="select-dark"
-                  value={planForm.priority}
-                  onChange={handlePlanChange}
-                >
-                  <option value="must">必做</option>
-                  <option value="should">建議</option>
-                  <option value="nice">有空再做</option>
-                </select>
-              </div>
-              <div style={{ gridColumn: "1 / span 2", display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  className="btn-outline"
-                  onClick={startListening}
-                >
-                  🎤 語音輸入
-                </button>
-                <button
-                  type="button"
-                  className="btn-outline"
-                  onClick={handleParseVoiceToPlans}
-                  disabled={parsingPlans}
-                >
-                  {parsingPlans ? "AI 解析中..." : "✨ AI 解析為多個任務"}
-                </button>
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  disabled={creatingPlan}
-                  style={{ marginLeft: "auto" }}
-                >
-                  {creatingPlan ? "新增中..." : "建立計畫"}
-                </button>
-              </div>
-            </form>
-
-            {voiceText && (
-              <p
-                style={{
-                  fontSize: 12,
-                  color: "var(--text-muted)",
-                  marginTop: -4,
-                }}
+            {/* === 新：語音 + 自然語言輸入 + 送出解析 === */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              {/* 語音輸入 */}
+              <button
+                type="button"
+                className="btn-outline"
+                onClick={startListening}
               >
-                語音文字：{voiceText}
-              </p>
-            )}
+                🎤 語音
+              </button>
 
-            {/* AI 解析出來的任務預覽區 */}
-            {parsedPlans.length > 0 && (
+              {/* 自然語言輸入框 */}
+              <input
+                type="text"
+                className="input-dark"
+                style={{ flex: 1 }}
+                placeholder="例如：晚上讀數學二次函數 1 小時，必做"
+                value={nlInput}
+                onChange={(e) => setNlInput(e.target.value)}
+              />
+
+              {/* AI 解析按鈕 */}
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleNLParse}
+                disabled={nlParsing || !nlInput.trim()}
+              >
+                {nlParsing ? "解析中..." : "送出"}
+              </button>
+            </div>
+
+
+            {/* === 新：AI 單筆預覽卡片（解析成功後才會出現） === */}
+            {nlPreview && (
               <div
                 style={{
                   border: "1px solid rgba(148,163,184,0.5)",
-                  padding: 10,
+                  padding: 12,
                   borderRadius: 10,
-                  marginTop: 10,
-                  marginBottom: 10,
                   background: "rgba(15,23,42,0.9)",
+                  marginBottom: 12,
                   fontSize: 13,
                 }}
               >
-                <h3 style={{ marginTop: 0, fontSize: 14 }}>AI 解析出的任務：</h3>
-                <ul>
-                  {parsedPlans.map((p, idx) => (
-                    <li key={idx}>
-                      [{p.priority}] {p.title}（科目：{p.subject || "未填"}，
-                      預估 {p.estimatedMinutes} 分鐘，日期：{p.date}）
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  className="btn-primary"
-                  type="button"
-                  onClick={handleConfirmParsedPlans}
-                >
-                  ✅ 確認並建立所有任務
-                </button>{" "}
-                <button
-                  className="btn-outline"
-                  type="button"
-                  onClick={() => setParsedPlans([])}
-                >
-                  取消
-                </button>
+                <h3 style={{ marginTop: 0, fontSize: 14 }}>AI 解析的計畫</h3>
+
+                <p>任務：{nlPreview.title}</p>
+                <p>科目：{nlPreview.subject || "（未填）"}</p>
+                <p>預估時間：{nlPreview.estimatedMinutes} 分鐘</p>
+                <p>優先級：{nlPreview.priority}</p>
+                <p>日期：{nlPreview.date}</p>
+
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button
+                    className="btn-primary"
+                    onClick={handleNLConfirm}
+                    disabled={nlCreating}
+                  >
+                    {nlCreating ? "建立中..." : "確認建立"}
+                  </button>
+
+                  <button
+                    className="btn-outline"
+                    onClick={() => setNlPreview(null)}
+                    disabled={nlCreating}
+                  >
+                    取消
+                  </button>
+                </div>
               </div>
             )}
+  
+
 
             {/* 今日計畫列表（卡片） */}
             {plansError && (
@@ -695,22 +631,42 @@ export default function DashboardPage() {
                       : "plan-pill plan-pill-priority-nice";
 
                   return (
-                    <div key={p._id} className="plan-card">
-                      <div className="plan-title">{p.title}</div>
-                      <div className="plan-sub">
-                        {p.subject || "未填科目"} · 預估 {p.estimatedMinutes} 分鐘
-                      </div>
-                      <div className="plan-meta">
-                        <span className={priorityClass}>
-                          {p.priority === "must"
-                            ? "必做"
-                            : p.priority === "should"
-                            ? "建議"
-                            : "有空再做"}
-                        </span>
-                        <span className="plan-pill plan-pill-status">{p.status}</span>
-                      </div>
+                    <div key={p._id} className="plan-card" style={{ position: "relative" }}>
+                    {/* 刪除按鈕（右上角） */}
+                    <button
+                      onClick={() => handleDeletePlan(p._id)}
+                      style={{
+                        position: "absolute",
+                        top: 6,
+                        right: 6,
+                        background: "rgba(255,80,80,0.15)",
+                        border: "1px solid rgba(255,80,80,0.4)",
+                        color: "salmon",
+                        fontSize: 11,
+                        padding: "2px 8px",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                      }}
+                    >
+                      刪除
+                    </button>
+
+                    {/* 原本內容 */}
+                    <div className="plan-title">{p.title}</div>
+                    <div className="plan-sub">
+                      {p.subject || "未填科目"} · 預估 {p.estimatedMinutes} 分鐘
                     </div>
+                    <div className="plan-meta">
+                      <span className={priorityClass}>
+                        {p.priority === "must"
+                          ? "必做"
+                          : p.priority === "should"
+                          ? "建議"
+                          : "有空再做"}
+                      </span>
+                      <span className="plan-pill plan-pill-status">{p.status === "pending" ? "待辦事項" : p.status}</span>
+                    </div>
+                  </div>
                   );
                 })}
               </div>

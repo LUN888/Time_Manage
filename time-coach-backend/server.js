@@ -881,6 +881,20 @@ ${sessionsText}
 });
 
 
+//-----------------------卡片刪除功能
+// DELETE /api/plans/:id
+app.delete("/api/plans/:id", authRequired, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await Plan.deleteOne({ _id: id, userId: req.user.id });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: "刪除失敗" });
+  }
+});
+
+
+
 // ------------------------------- 伺服器啟動與 MongoDB 連線 區塊 ----------------------------//
 // 連線 MongoDB
 mongoose
