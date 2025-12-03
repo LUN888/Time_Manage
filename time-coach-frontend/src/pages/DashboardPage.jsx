@@ -27,11 +27,10 @@ export default function DashboardPage() {
   const [plansError, setPlansError] = useState("");
   const [plansLoading, setPlansLoading] = useState(true);
 
-
   // ---- 自然語言新增計畫（新的） ----
-  const [nlInput, setNlInput] = useState("");         // 使用者自然語言輸入
-  const [nlParsing, setNlParsing] = useState(false);   // 解析中
-  const [nlPreview, setNlPreview] = useState(null);    // AI 單筆預覽
+  const [nlInput, setNlInput] = useState(""); // 使用者自然語言輸入
+  const [nlParsing, setNlParsing] = useState(false); // 解析中
+  const [nlPreview, setNlPreview] = useState(null); // AI 單筆預覽
   const [nlCreating, setNlCreating] = useState(false); // 建立中
 
   // 語音解析
@@ -96,108 +95,102 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, navigate]);
 
+  // 🎤 語音轉文字功能
+  const startListening = () => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
 
-    // 🎤 語音轉文字功能
-    const startListening = () => {
-      const SpeechRecognition =
-        window.SpeechRecognition || window.webkitSpeechRecognition;
-
-      if (!SpeechRecognition) {
-        alert("你的瀏覽器不支援語音輸入（建議使用 Chrome）");
-        return;
-      }
-
-      const recognition = new SpeechRecognition();
-      recognition.lang = "zh-TW";
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
-      recognition.onresult = (event) => {
-        const text = event.results[0][0].transcript;
-        console.log("語音辨識結果：", text);
-
-        setVoiceText(text);  // 顯示給使用者看
-        setNlInput(text);    // 把語音塞到自然語言輸入框
-      };
-
-      recognition.onerror = (e) => {
-        console.error("語音辨識錯誤：", e.error);
-      };
-
-      recognition.start();
-    };
-
-
-  //---- 自然語言新增計畫功能的處理函式 ----
-  // 🧠（新增）解析自然語言成 1 筆預覽資料  
-  async function handleNLParse() {
-  if (!nlInput.trim()) return;
-
-  setNlParsing(true);
-  try {
-    const res = await api.post("/api/plans/parse", {
-      text: nlInput,
-      date: todayStr,
-    });
-
-    const plans = res.data.plans || [];
-    if (plans.length === 0) {
-      alert("AI 無法解析這段內容，請換種說法試試看");
+    if (!SpeechRecognition) {
+      alert("你的瀏覽器不支援語音輸入（建議使用 Chrome）");
       return;
     }
 
-    // ⭐ 你目前要「單筆預覽」，所以只拿第一筆
-    setNlPreview(plans[0]);
+    const recognition = new SpeechRecognition();
+    recognition.lang = "zh-TW";
+    recognition.continuous = false;
+    recognition.interimResults = false;
 
-  } catch (err) {
-    console.error(err);
-    alert("AI 解析失敗");
-  } finally {
-    setNlParsing(false);
+    recognition.onresult = (event) => {
+      const text = event.results[0][0].transcript;
+      console.log("語音辨識結果：", text);
+
+      setVoiceText(text); // 顯示給使用者看
+      setNlInput(text); // 把語音塞到自然語言輸入框
+    };
+
+    recognition.onerror = (e) => {
+      console.error("語音辨識錯誤：", e.error);
+    };
+
+    recognition.start();
+  };
+
+  //---- 自然語言新增計畫功能的處理函式 ----
+  // 🧠（新增）解析自然語言成 1 筆預覽資料
+  async function handleNLParse() {
+    if (!nlInput.trim()) return;
+
+    setNlParsing(true);
+    try {
+      const res = await api.post("/api/plans/parse", {
+        text: nlInput,
+        date: todayStr,
+      });
+
+      const plans = res.data.plans || [];
+      if (plans.length === 0) {
+        alert("AI 無法解析這段內容，請換種說法試試看");
+        return;
+      }
+
+      // ⭐ 你目前要「單筆預覽」，所以只拿第一筆
+      setNlPreview(plans[0]);
+    } catch (err) {
+      console.error(err);
+      alert("AI 解析失敗");
+    } finally {
+      setNlParsing(false);
+    }
   }
-}
 
-// ✔（新增）按下「確認建立」→ 寫入資料庫 → 更新前端
-async function handleNLConfirm() {
-  if (!nlPreview) return;
+  // ✔（新增）按下「確認建立」→ 寫入資料庫 → 更新前端
+  async function handleNLConfirm() {
+    if (!nlPreview) return;
 
-  setNlCreating(true);
-  try {
-    const res = await api.post("/api/plans", {
-      ...nlPreview,
-    });
+    setNlCreating(true);
+    try {
+      const res = await api.post("/api/plans", {
+        ...nlPreview,
+      });
 
-    // 加入左邊卡片列表
-    setPlans((prev) => [...prev, res.data]);
+      // 加入左邊卡片列表
+      setPlans((prev) => [...prev, res.data]);
 
-    // 清空預覽與輸入
-    setNlPreview(null);
-    setNlInput("");
-
-  } catch (err) {
-    console.error(err);
-    alert("建立任務失敗，請稍後再試");
-  } finally {
-    setNlCreating(false);
+      // 清空預覽與輸入
+      setNlPreview(null);
+      setNlInput("");
+    } catch (err) {
+      console.error(err);
+      alert("建立任務失敗，請稍後再試");
+    } finally {
+      setNlCreating(false);
+    }
   }
-}
 
-// ---- 刪除計畫卡片 ----
-async function handleDeletePlan(id) {
-  if (!window.confirm("確定要刪除這個計畫嗎？")) return;
+  // ---- 刪除計畫卡片 ----
+  async function handleDeletePlan(id) {
+    if (!window.confirm("確定要刪除這個計畫嗎？")) return;
 
-  try {
-    await api.delete(`/api/plans/${id}`);
+    try {
+      await api.delete(`/api/plans/${id}`);
 
-    // 前端即時更新
-    setPlans((prev) => prev.filter((p) => p._id !== id));
-  } catch (err) {
-    console.error(err);
-    alert("刪除失敗");
+      // 前端即時更新
+      setPlans((prev) => prev.filter((p) => p._id !== id));
+    } catch (err) {
+      console.error(err);
+      alert("刪除失敗");
+    }
   }
-}
-
-
 
   // ---- 專注紀錄處理 ----
   const handleSessionChange = (e) => {
@@ -285,8 +278,8 @@ async function handleDeletePlan(id) {
       alert(err.response?.data?.error || "紀錄分心時發生錯誤");
     }
   };
-//-------功能：捲動到專注紀錄表單並聚焦開始時間欄位-------
-    const scrollToSessionForm = () => {
+  //-------功能：捲動到專注紀錄表單並聚焦開始時間欄位-------
+  const scrollToSessionForm = () => {
     if (sessionSectionRef.current) {
       sessionSectionRef.current.scrollIntoView({
         behavior: "smooth",
@@ -301,10 +294,6 @@ async function handleDeletePlan(id) {
     }, 400);
   };
 
-
-
-
-
   // ------------ 渲染頁面 ------------
   if (!user) return null;
 
@@ -316,7 +305,7 @@ async function handleDeletePlan(id) {
   return (
     <div className="dashboard-shell">
       {/* header */}
-            <div
+      <div
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -410,9 +399,7 @@ async function handleDeletePlan(id) {
               <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                 今日 AI 排程
               </div>
-              <h2 style={{ margin: 0, fontSize: 18 }}>
-                {todayStr} 的時間表
-              </h2>
+              <h2 style={{ margin: 0, fontSize: 18 }}>{todayStr} 的時間表</h2>
             </div>
             <button
               className="btn-primary"
@@ -512,8 +499,7 @@ async function handleDeletePlan(id) {
                   <li key={s._id}>
                     {new Date(s.startTime).toTimeString().slice(0, 5)}~
                     {new Date(s.endTime).toTimeString().slice(0, 5)} ·{" "}
-                    {s.durationMinutes} 分
-                    {s.interrupted && "（有分心）"}
+                    {s.durationMinutes} 分{s.interrupted && "（有分心）"}
                   </li>
                 ))}
               </ul>
@@ -567,7 +553,6 @@ async function handleDeletePlan(id) {
               </button>
             </div>
 
-
             {/* === 新：AI 單筆預覽卡片（解析成功後才會出現） === */}
             {nlPreview && (
               <div
@@ -607,8 +592,6 @@ async function handleDeletePlan(id) {
                 </div>
               </div>
             )}
-  
-
 
             {/* 今日計畫列表（卡片） */}
             {plansError && (
@@ -631,42 +614,49 @@ async function handleDeletePlan(id) {
                       : "plan-pill plan-pill-priority-nice";
 
                   return (
-                    <div key={p._id} className="plan-card" style={{ position: "relative" }}>
-                    {/* 刪除按鈕（右上角） */}
-                    <button
-                      onClick={() => handleDeletePlan(p._id)}
-                      style={{
-                        position: "absolute",
-                        top: 6,
-                        right: 6,
-                        background: "rgba(255,80,80,0.15)",
-                        border: "1px solid rgba(255,80,80,0.4)",
-                        color: "salmon",
-                        fontSize: 11,
-                        padding: "2px 8px",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                      }}
+                    <div
+                      key={p._id}
+                      className="plan-card"
+                      style={{ position: "relative" }}
                     >
-                      刪除
-                    </button>
+                      {/* 刪除按鈕（右上角） */}
+                      <button
+                        onClick={() => handleDeletePlan(p._id)}
+                        style={{
+                          position: "absolute",
+                          top: 6,
+                          right: 6,
+                          background: "rgba(255,80,80,0.15)",
+                          border: "1px solid rgba(255,80,80,0.4)",
+                          color: "salmon",
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                        }}
+                      >
+                        刪除
+                      </button>
 
-                    {/* 原本內容 */}
-                    <div className="plan-title">{p.title}</div>
-                    <div className="plan-sub">
-                      {p.subject || "未填科目"} · 預估 {p.estimatedMinutes} 分鐘
+                      {/* 原本內容 */}
+                      <div className="plan-title">{p.title}</div>
+                      <div className="plan-sub">
+                        {p.subject || "未填科目"} · 預估 {p.estimatedMinutes}{" "}
+                        分鐘
+                      </div>
+                      <div className="plan-meta">
+                        <span className={priorityClass}>
+                          {p.priority === "must"
+                            ? "必做"
+                            : p.priority === "should"
+                            ? "建議"
+                            : "有空再做"}
+                        </span>
+                        <span className="plan-pill plan-pill-status">
+                          {p.status === "pending" ? "待辦事項" : p.status}
+                        </span>
+                      </div>
                     </div>
-                    <div className="plan-meta">
-                      <span className={priorityClass}>
-                        {p.priority === "must"
-                          ? "必做"
-                          : p.priority === "should"
-                          ? "建議"
-                          : "有空再做"}
-                      </span>
-                      <span className="plan-pill plan-pill-status">{p.status === "pending" ? "待辦事項" : p.status}</span>
-                    </div>
-                  </div>
                   );
                 })}
               </div>
@@ -676,11 +666,17 @@ async function handleDeletePlan(id) {
       </div>
 
       {/* ===== 今日專注紀錄（詳細） ===== */}
-      <section ref={sessionSectionRef}className="glass-card"style={{ marginTop: 20 }}>
+      <section
+        ref={sessionSectionRef}
+        className="glass-card"
+        style={{ marginTop: 20 }}
+      >
         <h2 style={{ marginTop: 0 }}>今日專注紀錄</h2>
 
         <form onSubmit={handleCreateSession} style={{ marginBottom: 16 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div
+            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+          >
             <div>
               <label className="label-light">開始時間</label>
               <input
@@ -734,7 +730,11 @@ async function handleDeletePlan(id) {
               onChange={handleSessionChange}
             />
           </div>
-          <button type="submit" className="btn-primary" disabled={creatingSession}>
+          <button
+            type="submit"
+            className="btn-primary"
+            disabled={creatingSession}
+          >
             {creatingSession ? "新增中..." : "新增專注紀錄"}
           </button>
         </form>
@@ -751,8 +751,8 @@ async function handleDeletePlan(id) {
             {sessions.map((s) => (
               <li key={s._id}>
                 {new Date(s.startTime).toLocaleTimeString()} ~{" "}
-                {new Date(s.endTime).toLocaleTimeString()} ，
-                {s.durationMinutes} 分鐘
+                {new Date(s.endTime).toLocaleTimeString()} ，{s.durationMinutes}{" "}
+                分鐘
                 {s.interrupted && "（有分心）"}
                 {s.interruptReasons && s.interruptReasons.length > 0 && (
                   <>，原因：{s.interruptReasons.join("、")}</>
