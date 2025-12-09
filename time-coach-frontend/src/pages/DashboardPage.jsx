@@ -10,6 +10,20 @@ function formatDateToYMD(date) {
   return `${y}-${m}-${d}`;
 }
 
+function formatTimeOnly(dateStr) {
+    if (!dateStr) return null;
+    if (dateStr.length <= 10) return null; // 只有 YYYY-MM-DD
+    const date = new Date(dateStr);
+    const h = date.getHours();
+    const m = date.getMinutes();
+    // 如果是 00:00 可能是預設，決定是否隱藏？
+    // 這裡假設如果後端回傳 Txx:xx:00 就是有指定時間（因為原本只回 YYYY-MM-DD）
+    // 但 parse 後的 date 格式是 YYYY-MM-DDTHH:MM:00
+    // 如果是舊資料 00:00:00 怎麼辦？
+    // 簡單判斷：如果是 00:00，我們視為「沒指定時間」（或者顯示 00:00 也可以，看使用者需求，先顯示）
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -571,7 +585,7 @@ export default function DashboardPage() {
                 <p>科目：{nlPreview.subject || "（未填）"}</p>
                 <p>預估時間：{nlPreview.estimatedMinutes} 分鐘</p>
                 <p>優先級：{nlPreview.priority}</p>
-                <p>日期：{nlPreview.date}</p>
+                <p>日期：{nlPreview.date.slice(0, 10)} {formatTimeOnly(nlPreview.date)}</p>
 
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                   <button
@@ -639,7 +653,13 @@ export default function DashboardPage() {
                       </button>
 
                       {/* 原本內容 */}
-                      <div className="plan-title">{p.title}</div>
+                      <div className="plan-title">
+                        {p.title}
+                        {(() => {
+                            const t = formatTimeOnly(p.date);
+                            return t && t !== '00:00' ? <span style={{fontSize: '0.8em', marginLeft: 8, color: 'var(--accent)'}}>@{t}</span> : null;
+                        })()}
+                      </div>
                       <div className="plan-sub">
                         {p.subject || "未填科目"} · 預估 {p.estimatedMinutes}{" "}
                         分鐘

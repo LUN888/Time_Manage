@@ -21,7 +21,7 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
-app.use(cors({origin: "http://localhost:5173",})
+app.use(cors({ origin: "http://localhost:5173", })
 );
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -288,8 +288,8 @@ app.get("/api/reflections", authRequired, async (req, res) => {
 
 
 
-  //-----------------------------Auth 區塊----------------------------//
-  // 註冊：POST /api/auth/register
+//-----------------------------Auth 區塊----------------------------//
+// 註冊：POST /api/auth/register
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { email, password, name, grade, major, procrastinationSelfRating } =
@@ -403,31 +403,29 @@ app.post("/api/coach/chat", authRequired, async (req, res) => {
 
 【學生的學習計畫】
 ${plans
-  .map(
-    (p) =>
-      `- (${p.date.toISOString().slice(0, 10)}) ${p.title} [${p.priority}] 狀態：${p.status}`
-  )
-  .join("\n")}
+        .map(
+          (p) =>
+            `- (${p.date.toISOString().slice(0, 10)}) ${p.title} [${p.priority}] 狀態：${p.status}`
+        )
+        .join("\n")}
 
 【學生的專注紀錄】
 ${sessions
-  .map(
-    (s) =>
-      `- ${new Date(s.startTime).toLocaleString()} (${s.durationMinutes}分鐘)${
-        s.interrupted ? "，有分心，原因：" + s.interruptReasons.join("、") : ""
-      }`
-  )
-  .join("\n")}
+        .map(
+          (s) =>
+            `- ${new Date(s.startTime).toLocaleString()} (${s.durationMinutes}分鐘)${s.interrupted ? "，有分心，原因：" + s.interruptReasons.join("、") : ""
+            }`
+        )
+        .join("\n")}
 
 【學生的每日反思】
 ${reflections
-  .map(
-    (r) =>
-      `- (${r.date.toISOString().slice(0, 10)}) 完成度 ${r.completionScore}%, 最拖延：${
-        r.mostProcrastinatedTask
-      }, 做得好：${r.whatWentWell}, 想改善：${r.whatToImprove}`
-  )
-  .join("\n")}
+        .map(
+          (r) =>
+            `- (${r.date.toISOString().slice(0, 10)}) 完成度 ${r.completionScore}%, 最拖延：${r.mostProcrastinatedTask
+            }, 做得好：${r.whatWentWell}, 想改善：${r.whatToImprove}`
+        )
+        .join("\n")}
 
 請給 3–5 個具體建議。語氣請保持友善、鼓勵、務實。
 `;
@@ -490,39 +488,36 @@ app.get("/api/coach/summary", authRequired, async (req, res) => {
       plans.length === 0
         ? "沒有紀錄"
         : plans
-            .map(
-              (p) =>
-                `- (${p.date.toISOString().slice(0, 10)}) ${p.title} [${p.priority}] 狀態：${p.status}`
-            )
-            .join("\n");
+          .map(
+            (p) =>
+              `- (${p.date.toISOString().slice(0, 10)}) ${p.title} [${p.priority}] 狀態：${p.status}`
+          )
+          .join("\n");
 
     const sessionsText =
       sessions.length === 0
         ? "沒有紀錄"
         : sessions
-            .map(
-              (s) =>
-                `- ${new Date(s.startTime).toLocaleString()} (${s.durationMinutes} 分鐘)${
-                  s.interrupted
-                    ? "，有分心，原因：" + (s.interruptReasons || []).join("、")
-                    : ""
-                }`
-            )
-            .join("\n");
+          .map(
+            (s) =>
+              `- ${new Date(s.startTime).toLocaleString()} (${s.durationMinutes} 分鐘)${s.interrupted
+                ? "，有分心，原因：" + (s.interruptReasons || []).join("、")
+                : ""
+              }`
+          )
+          .join("\n");
 
     const reflectionsText =
       reflections.length === 0
         ? "沒有紀錄"
         : reflections
-            .map(
-              (r) =>
-                `- (${r.date.toISOString().slice(0, 10)}) 完成度 ${
-                  r.completionScore
-                }%，最拖延：${r.mostProcrastinatedTask}，做得好：${
-                  r.whatWentWell
-                }，想改善：${r.whatToImprove}`
-            )
-            .join("\n");
+          .map(
+            (r) =>
+              `- (${r.date.toISOString().slice(0, 10)}) 完成度 ${r.completionScore
+              }%，最拖延：${r.mostProcrastinatedTask}，做得好：${r.whatWentWell
+              }，想改善：${r.whatToImprove}`
+          )
+          .join("\n");
 
     const prompt = `
 你是一位「AI 時間管理教練」，請根據學生最近 7 天的資料，主動提供分析與建議。
@@ -625,7 +620,9 @@ app.post("/api/plans/parse", authRequired, async (req, res) => {
       "subject": "科目或主題，若沒提到就用空字串",
       "estimatedMinutes": 整數（預估分鐘數，若沒提到預設 60）,
       "priority": "must" | "should" | "nice",
-      "date": "YYYY-MM-DD"
+      "priority": "must" | "should" | "nice",
+      "date": "YYYY-MM-DD",
+      "time": "HH:MM" (若有具體時間，例如 "20:00"，否則 null)
     }
   ]
 }
@@ -638,16 +635,29 @@ app.post("/api/plans/parse", authRequired, async (req, res) => {
 
 2. 日期與相對時間：
    - 「今天」          → 使用基準日期 ${baseDateStr}
+   - 「今天晚上」      → 使用基準日期 ${baseDateStr}，並嘗試提取時間
    - 「明天」          → 基準日期 + 1 天
    - 「後天」          → 基準日期 + 2 天
    - 「這週六」        → 找到距離基準日最近、且在未來的星期六
    - 如果完全沒提日期 → 使用基準日期 ${baseDateStr}
 
-3. 時段用來判斷「是不是今天」，但不用回傳具體時間：
-   - 「早上、上午、早一點」   → 仍只需要 date，時間不用寫進 JSON
-   - 「下午、傍晚」           → 一樣只需要 date
-   - 「晚上、晚一點、睡前」   → 一樣只需要 date
-   - 也就是說，你 **不用回傳具體時刻**，只要把任務分配到正確的日期就好。
+3. time（具體時間）：
+   - 如果使用者有提到具體時間（例如「晚上八點」、「8:00」、「20:00」、「下午三點」），請轉成 "HH:MM" 格式（24小時制）。
+   - 如果沒提到具體時間，或者只是說「晚上」、「早上」但沒說幾點，請回傳 null 或空字串。
+   - ⚠️ 重要：「下午」和「晚上」是 PM，需要加 12 小時！
+   - 範例：
+     - 「早上八點」 → time: "08:00"
+     - 「上午十點」 → time: "10:00"
+     - 「中午十二點」 → time: "12:00"
+     - 「下午一點」 → time: "13:00"
+     - 「下午兩點」 → time: "14:00"
+     - 「下午三點半」 → time: "15:30"
+     - 「下午五點」 → time: "17:00"
+     - 「晚上六點」 → time: "18:00"
+     - 「晚上八點」 → time: "20:00"
+     - 「晚上十點」 → time: "22:00"
+     - 「今天讀書」 → time: null
+
 
 4. estimatedMinutes（預估時間）：
    - 有講「半小時」         → 30
@@ -719,9 +729,22 @@ ${text}
       priority:
         p.priority === "must" || p.priority === "nice" ? p.priority : "should",
       date: (p.date || baseDateStr).slice(0, 10),
+      time: p.time || null,
     }));
 
-    res.json({ plans: cleanedPlans });
+    // 合併 date 和 time
+    const finalPlans = cleanedPlans.map(p => {
+      let finalDate = p.date;
+      if (p.time) {
+        finalDate = `${p.date}T${p.time}:00`;
+      }
+      return {
+        ...p,
+        date: finalDate // 若有時間則為 YYYY-MM-DDTHH:MM:00，否則為 YYYY-MM-DD
+      };
+    });
+
+    res.json({ plans: finalPlans });
   } catch (err) {
     console.error("AI parse plans error:", err);
     res.status(500).json({ error: "AI 解析學習計畫失敗" });
@@ -747,14 +770,14 @@ app.post("/api/plans/auto-schedule", authRequired, async (req, res) => {
       baseDate.getDate() + 1
     );
     function formatDateYMDLocal(d) {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
 
-  // 在 route 裡用：
-  const dayStr = formatDateYMDLocal(dayStart);
+    // 在 route 裡用：
+    const dayStr = formatDateYMDLocal(dayStart);
 
     // 1. 取出這一天的計畫（這裡先不管 status，全部排進來）
     const plans = await StudyPlan.find({
@@ -766,6 +789,40 @@ app.post("/api/plans/auto-schedule", authRequired, async (req, res) => {
       return res.status(400).json({ error: "這一天沒有可以排程的計畫" });
     }
 
+    // ========== 新增：分離固定時間和彈性時間的計畫 ==========
+    // 判斷計畫是否有指定時間（檢查 date 是否有非 00:00 的時間）
+    function hasFixedTime(plan) {
+      const d = new Date(plan.date);
+      return d.getHours() !== 0 || d.getMinutes() !== 0;
+    }
+
+    const fixedPlans = plans.filter(hasFixedTime);
+    const flexiblePlans = plans.filter(p => !hasFixedTime(p));
+
+    // 將固定時間計畫轉換成排程區塊
+    const fixedScheduleBlocks = fixedPlans.map(p => {
+      const startDate = new Date(p.date);
+      const endDate = new Date(startDate.getTime() + (p.estimatedMinutes || 60) * 60 * 1000);
+      return {
+        planId: p._id.toString(),
+        title: p.title,
+        start: `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`,
+        end: `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`,
+        note: "使用者指定時間"
+      };
+    });
+
+    // 如果沒有彈性計畫，直接回傳固定計畫
+    if (flexiblePlans.length === 0) {
+      // 按開始時間排序
+      fixedScheduleBlocks.sort((a, b) => a.start.localeCompare(b.start));
+      return res.json({
+        date: dayStr,
+        schedule: fixedScheduleBlocks,
+        summary: "所有計畫都有指定時間，已按時間排列。"
+      });
+    }
+
     // 2. 取得最近 7 天的專注紀錄
     const sevenDaysAgo = new Date(dayStart);
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -775,41 +832,49 @@ app.post("/api/plans/auto-schedule", authRequired, async (req, res) => {
       startTime: { $gte: sevenDaysAgo, $lt: dayEnd },
     }).sort({ startTime: 1 });
 
-    const plansText = plans
+    // 只傳彈性計畫給 AI
+    const flexiblePlansText = flexiblePlans
       .map(
         (p, idx) =>
-          `${idx + 1}. [${p.priority}] ${p.title}（科目：${
-            p.subject || "未填"
+          `${idx + 1}. [${p.priority}] ${p.title}（科目：${p.subject || "未填"
           }，預估 ${p.estimatedMinutes || 60} 分鐘，id=${p._id})`
       )
       .join("\n");
+
+    // 產生已佔用時段文字
+    const occupiedSlotsText = fixedScheduleBlocks.length === 0
+      ? "無"
+      : fixedScheduleBlocks
+        .map(b => `${b.start}~${b.end}：${b.title}`)
+        .join("\n");
 
     const sessionsText =
       sessions.length === 0
         ? "沒有紀錄"
         : sessions
-            .map((s) => {
-              const d = new Date(s.startTime);
-              return `${d.toISOString().slice(0, 10)} ${
-                d.toTimeString().slice(0, 5)
-              }，${s.durationMinutes || 0} 分鐘${
-                s.interrupted
-                  ? "，有分心（" + (s.interruptReasons || []).join("、") + ")"
-                  : ""
+          .map((s) => {
+            const d = new Date(s.startTime);
+            return `${d.toISOString().slice(0, 10)} ${d.toTimeString().slice(0, 5)
+              }，${s.durationMinutes || 0} 分鐘${s.interrupted
+                ? "，有分心（" + (s.interruptReasons || []).join("、") + ")"
+                : ""
               }`;
-            })
-            .join("\n");
+          })
+          .join("\n");
 
     const prompt = `
 你是一個「時間管理教練 + 排程助手」，要幫學生安排「${dayStr}」這一天的學習計畫。
 
-### 當天待排程的任務：
-${plansText}
+### ⚠️ 已佔用的時段（使用者已指定時間，不可覆蓋）：
+${occupiedSlotsText}
+
+### 待排程的任務（需要你安排時間）：
+${flexiblePlansText}
 
 ### 最近 7 天的專注紀錄（用來估計最適合讀書的時段）：
 ${sessionsText}
 
-請幫我產生「一天的學習時段安排」，用 JSON 格式回覆：
+請幫我產生「彈性任務的學習時段安排」，用 JSON 格式回覆：
 
 {
   "schedule": [
@@ -826,10 +891,11 @@ ${sessionsText}
 
 ### 排程原則：
 
-1. 先排 priority 為 must，再來 should，最後 nice。
-2. 一個任務可以拆成多個時段（例如 120 分鐘 → 2 個 60 分鐘 block）。
-3. 避免連續超過 90 分鐘不休息。
-4. 參考最近 7 天 session，若某些時段比較常讀書，就多排在那些時段。
+1. **絕對不能與已佔用時段重疊！**
+2. 先排 priority 為 must，再來 should，最後 nice。
+3. 一個任務可以拆成多個時段（例如 120 分鐘 → 2 個 60 分鐘 block）。
+4. 避免連續超過 90 分鐘不休息。
+5. 參考最近 7 天 session，若某些時段比較常讀書，就多排在那些時段。
 
 請只回覆 JSON，不要加入任何解釋文字或 Markdown。
 `;
@@ -869,9 +935,14 @@ ${sessionsText}
         .json({ error: "AI 沒有給出有效的 schedule 陣列" });
     }
 
+    // ========== 合併固定時間和 AI 排程 ==========
+    const allScheduleBlocks = [...fixedScheduleBlocks, ...parsed.schedule];
+    // 按開始時間排序
+    allScheduleBlocks.sort((a, b) => a.start.localeCompare(b.start));
+
     res.json({
       date: dayStr,
-      schedule: parsed.schedule,
+      schedule: allScheduleBlocks,
       summary: parsed.summary || "",
     });
   } catch (err) {
