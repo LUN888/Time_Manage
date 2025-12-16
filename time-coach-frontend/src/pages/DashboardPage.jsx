@@ -16,11 +16,10 @@ function formatTimeOnly(dateStr) {
     const date = new Date(dateStr);
     const h = date.getHours();
     const m = date.getMinutes();
-    // 如果是 00:00 可能是預設，決定是否隱藏？
-    // 這裡假設如果後端回傳 Txx:xx:00 就是有指定時間（因為原本只回 YYYY-MM-DD）
-    // 但 parse 後的 date 格式是 YYYY-MM-DDTHH:MM:00
-    // 如果是舊資料 00:00:00 怎麼辦？
-    // 簡單判斷：如果是 00:00，我們視為「沒指定時間」（或者顯示 00:00 也可以，看使用者需求，先顯示）
+    // 如果是 00:00，視為彈性計畫（沒有指定時間）
+    if (h === 0 && m === 0) {
+      return "彈性規劃";
+    }
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
@@ -99,6 +98,22 @@ export default function DashboardPage() {
     }
   };
 
+  // 載入已儲存的排程
+  const fetchSchedule = async () => {
+    try {
+      const res = await api.get(`/api/schedule?date=${todayStr}`);
+      if (res.data.exists) {
+        setAutoSchedule({
+          date: res.data.date,
+          schedule: res.data.schedule,
+          summary: res.data.summary,
+        });
+      }
+    } catch (err) {
+      console.error("Fetch schedule error:", err);
+    }
+  };
+
   useEffect(() => {
     if (!user) {
       navigate("/login");
@@ -106,6 +121,7 @@ export default function DashboardPage() {
     }
     fetchPlans();
     fetchSessions();
+    fetchSchedule(); // 載入已儲存的排程
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, navigate]);
 
@@ -345,6 +361,18 @@ export default function DashboardPage() {
             gap: 12, // 按鈕之間距離大一點
           }}
         >
+          <button
+            className="btn-outline"
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              borderRadius: 999,
+            }}
+            onClick={() => navigate("/calendar")}
+          >
+            📅 行事曆
+          </button>
+
           <button
             className="btn-outline"
             style={{
@@ -661,7 +689,7 @@ export default function DashboardPage() {
                         })()}
                       </div>
                       <div className="plan-sub">
-                        {p.subject || "未填科目"} · 預估 {p.estimatedMinutes}{" "}
+                        {p.subject || "未填科目"} · {p.endDate ? "每日建議" : "預估"} {p.estimatedMinutes}{" "}
                         分鐘
                       </div>
                       <div className="plan-meta">

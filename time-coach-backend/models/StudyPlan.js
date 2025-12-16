@@ -12,7 +12,8 @@ const studyPlanSchema = new mongoose.Schema(
       enum: ["must", "should", "nice"],
       default: "should",
     },
-    date: { type: Date, required: true },     // 計畫哪一天做
+    date: { type: Date, required: true },     // 開始日期
+    endDate: { type: Date },                  // 結束日期（若為空則為單日事件）
     status: {
       type: String,
       enum: ["pending", "done", "postponed"],

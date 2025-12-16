@@ -7,6 +7,7 @@ import DashboardPage from "./pages/DashboardPage";
 import ReflectionPage from "./pages/ReflectionPage";
 import CoachPage from "./pages/CoachPage";
 import StatsPage from "./pages/StatsPage";
+import CalendarPage from "./pages/CalendarPage";
 
 
 function PrivateRoute({ children }) {
@@ -59,7 +60,14 @@ export default function App() {
           <StatsPage />
           </PrivateRoute>}/>
 
-        </Routes>
+          <Route
+            path="/calendar"
+            element={
+              <PrivateRoute>
+                <CalendarPage />
+              </PrivateRoute>
+            }
+          />        </Routes>
       </BrowserRouter>
     </AuthProvider>
   );

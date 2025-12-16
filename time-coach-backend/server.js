@@ -10,7 +10,10 @@ import StudyPlan from "./models/StudyPlan.js";
 import StudySession from "./models/StudySession.js";
 import { authRequired } from "./middleware/auth.js";
 import Reflection from "./models/Reflection.js";
+import CalendarToken from "./models/CalendarToken.js";
+import DailySchedule from "./models/DailySchedule.js";
 import OpenAI from "openai";
+import { google } from "googleapis";
 
 
 import bcrypt from "bcryptjs";
@@ -78,9 +81,20 @@ app.get("/api/plans", authRequired, async (req, res) => {
     const dayEnd = new Date(date);
     dayEnd.setDate(dayEnd.getDate() + 1);
 
+    // 查詢：
+    // 1. 單日計畫：date 在查詢日期範圍內
+    // 2. 跨日計畫：查詢日期落在 date ~ endDate 範圍內
     const plans = await StudyPlan.find({
       userId: req.userId,
-      date: { $gte: dayStart, $lt: dayEnd },
+      $or: [
+        // 單日計畫或跨日計畫的開始日
+        { date: { $gte: dayStart, $lt: dayEnd } },
+        // 跨日計畫：查詢日期在 date ~ endDate 範圍內
+        {
+          date: { $lt: dayEnd },
+          endDate: { $gte: dayStart }
+        }
+      ]
     }).sort({ createdAt: 1 });
 
     res.json(plans);
@@ -752,6 +766,36 @@ ${text}
 });
 
 // ----------------------------- AI 自動排程 區塊 ----------------------------//
+
+// 取得已儲存的排程：GET /api/schedule?date=YYYY-MM-DD
+app.get("/api/schedule", authRequired, async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) {
+      return res.status(400).json({ error: "請提供 date 參數" });
+    }
+
+    const schedule = await DailySchedule.findOne({
+      userId: req.userId,
+      date: date,
+    });
+
+    if (!schedule) {
+      return res.json({ exists: false });
+    }
+
+    res.json({
+      exists: true,
+      date: schedule.date,
+      schedule: schedule.schedule,
+      summary: schedule.summary,
+    });
+  } catch (err) {
+    console.error("Get schedule error:", err);
+    res.status(500).json({ error: "取得排程失敗" });
+  }
+});
+
 // AI 自動排程：POST /api/plans/auto-schedule
 app.post("/api/plans/auto-schedule", authRequired, async (req, res) => {
   try {
@@ -779,10 +823,18 @@ app.post("/api/plans/auto-schedule", authRequired, async (req, res) => {
     // 在 route 裡用：
     const dayStr = formatDateYMDLocal(dayStart);
 
-    // 1. 取出這一天的計畫（這裡先不管 status，全部排進來）
+    // 1. 取出這一天的計畫（包含跨日事件）
     const plans = await StudyPlan.find({
       userId,
-      date: { $gte: dayStart, $lt: dayEnd },
+      $or: [
+        // 單日計畫
+        { date: { $gte: dayStart, $lt: dayEnd } },
+        // 跨日計畫：查詢日期在 date ~ endDate 範圍內
+        {
+          date: { $lt: dayEnd },
+          endDate: { $gte: dayStart }
+        }
+      ]
     }).sort({ priority: 1 });
 
     if (plans.length === 0) {
@@ -816,6 +868,19 @@ app.post("/api/plans/auto-schedule", authRequired, async (req, res) => {
     if (flexiblePlans.length === 0) {
       // 按開始時間排序
       fixedScheduleBlocks.sort((a, b) => a.start.localeCompare(b.start));
+
+      // 儲存到資料庫
+      await DailySchedule.findOneAndUpdate(
+        { userId: userId, date: dayStr },
+        {
+          userId: userId,
+          date: dayStr,
+          schedule: fixedScheduleBlocks,
+          summary: "所有計畫都有指定時間，已按時間排列。",
+        },
+        { upsert: true, new: true }
+      );
+
       return res.json({
         date: dayStr,
         schedule: fixedScheduleBlocks,
@@ -940,6 +1005,18 @@ ${sessionsText}
     // 按開始時間排序
     allScheduleBlocks.sort((a, b) => a.start.localeCompare(b.start));
 
+    // ========== 儲存排程到資料庫 ==========
+    await DailySchedule.findOneAndUpdate(
+      { userId: userId, date: dayStr },
+      {
+        userId: userId,
+        date: dayStr,
+        schedule: allScheduleBlocks,
+        summary: parsed.summary || "",
+      },
+      { upsert: true, new: true }
+    );
+
     res.json({
       date: dayStr,
       schedule: allScheduleBlocks,
@@ -964,6 +1041,300 @@ app.delete("/api/plans/:id", authRequired, async (req, res) => {
   }
 });
 
+
+
+// ------------------------------- Google Calendar 整合區塊 ----------------------------//
+
+// Google OAuth2 設定
+console.log("🔐 Google OAuth Config Check:");
+console.log("  GOOGLE_CLIENT_ID:", process.env.GOOGLE_CLIENT_ID ? `${process.env.GOOGLE_CLIENT_ID.substring(0, 20)}...` : "❌ NOT SET");
+console.log("  GOOGLE_CLIENT_SECRET:", process.env.GOOGLE_CLIENT_SECRET ? `${process.env.GOOGLE_CLIENT_SECRET.substring(0, 8)}... (length: ${process.env.GOOGLE_CLIENT_SECRET.length})` : "❌ NOT SET");
+console.log("  GOOGLE_REDIRECT_URI:", process.env.GOOGLE_REDIRECT_URI || "❌ NOT SET");
+
+// 檢查 secret 是否有隱藏字元
+if (process.env.GOOGLE_CLIENT_SECRET) {
+  const secret = process.env.GOOGLE_CLIENT_SECRET;
+  const hasWhitespace = /\s/.test(secret);
+  const hasQuotes = /["']/.test(secret);
+  if (hasWhitespace) console.log("  ⚠️ WARNING: Client secret contains whitespace!");
+  if (hasQuotes) console.log("  ⚠️ WARNING: Client secret contains quotes!");
+}
+
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+const CALENDAR_SCOPES = [
+  "https://www.googleapis.com/auth/calendar.readonly",
+];
+
+// 取得 Google OAuth 授權連結
+app.get("/api/calendar/google/auth-url", authRequired, (req, res) => {
+  try {
+    const state = req.userId; // 將 userId 存入 state，回調時用
+    const authUrl = oauth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: CALENDAR_SCOPES,
+      state: state,
+      prompt: "consent", // 強制顯示同意畫面以取得 refresh_token
+    });
+    res.json({ url: authUrl });
+  } catch (err) {
+    console.error("Generate auth URL error:", err);
+    res.status(500).json({ error: "無法產生授權連結" });
+  }
+});
+
+// Google OAuth 回調處理
+app.get("/api/calendar/google/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const userId = state;
+
+    if (!code || !userId) {
+      return res.status(400).send("授權失敗：缺少必要參數");
+    }
+
+    // 用 code 交換 tokens
+    const { tokens } = await oauth2Client.getToken(code);
+
+    // 計算過期時間
+    const expiresAt = tokens.expiry_date
+      ? new Date(tokens.expiry_date)
+      : new Date(Date.now() + 3600 * 1000);
+
+    // 儲存或更新 token
+    await CalendarToken.findOneAndUpdate(
+      { userId: userId },
+      {
+        userId: userId,
+        provider: "google",
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token || undefined,
+        expiresAt: expiresAt,
+        scope: tokens.scope,
+      },
+      { upsert: true, new: true }
+    );
+
+    // 重導向回前端（成功頁面）
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    res.redirect(`${frontendUrl}/calendar?connected=true`);
+  } catch (err) {
+    console.error("Google OAuth callback error:", err);
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    res.redirect(`${frontendUrl}/calendar?error=auth_failed`);
+  }
+});
+
+// 檢查用戶是否已連結 Google Calendar
+app.get("/api/calendar/google/status", authRequired, async (req, res) => {
+  try {
+    const token = await CalendarToken.findOne({
+      userId: req.userId,
+      provider: "google",
+    });
+
+    if (!token) {
+      return res.json({ connected: false });
+    }
+
+    // 檢查是否過期
+    const isExpired = token.expiresAt && new Date() > token.expiresAt;
+
+    res.json({
+      connected: true,
+      expiresAt: token.expiresAt,
+      isExpired: isExpired,
+    });
+  } catch (err) {
+    console.error("Check calendar status error:", err);
+    res.status(500).json({ error: "檢查連結狀態失敗" });
+  }
+});
+
+// 取得用戶的所有日曆清單
+app.get("/api/calendar/google/calendars", authRequired, async (req, res) => {
+  try {
+    const token = await CalendarToken.findOne({
+      userId: req.userId,
+      provider: "google",
+    });
+
+    if (!token) {
+      return res.status(401).json({ error: "請先連結 Google Calendar" });
+    }
+
+    oauth2Client.setCredentials({
+      access_token: token.accessToken,
+      refresh_token: token.refreshToken,
+    });
+
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+    const response = await calendar.calendarList.list();
+
+    const calendars = (response.data.items || []).map((cal) => ({
+      id: cal.id,
+      name: cal.summary || cal.id,
+      description: cal.description || "",
+      backgroundColor: cal.backgroundColor,
+      primary: cal.primary || false,
+    }));
+
+    res.json({ calendars });
+  } catch (err) {
+    console.error("Get calendar list error:", err);
+    res.status(500).json({ error: "取得日曆清單失敗" });
+  }
+});
+
+// 取得 Google Calendar 事件（支援選擇特定日曆）
+app.get("/api/calendar/google/events", authRequired, async (req, res) => {
+  try {
+    const token = await CalendarToken.findOne({
+      userId: req.userId,
+      provider: "google",
+    });
+
+    if (!token) {
+      return res.status(401).json({ error: "請先連結 Google Calendar" });
+    }
+
+    // 設置 credentials
+    oauth2Client.setCredentials({
+      access_token: token.accessToken,
+      refresh_token: token.refreshToken,
+    });
+
+    // 如果 token 過期，嘗試刷新
+    if (token.expiresAt && new Date() > token.expiresAt && token.refreshToken) {
+      try {
+        const { credentials } = await oauth2Client.refreshAccessToken();
+        token.accessToken = credentials.access_token;
+        token.expiresAt = new Date(credentials.expiry_date);
+        await token.save();
+        oauth2Client.setCredentials(credentials);
+      } catch (refreshErr) {
+        console.error("Refresh token error:", refreshErr);
+        return res.status(401).json({ error: "授權已過期，請重新連結" });
+      }
+    }
+
+    const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+    // 取得參數
+    const { from, to, calendarId } = req.query;
+    const targetCalendarId = calendarId || "primary";
+
+    const timeMin = from
+      ? new Date(from).toISOString()
+      : new Date().toISOString();
+    const timeMax = to
+      ? new Date(to).toISOString()
+      : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const response = await calendar.events.list({
+      calendarId: targetCalendarId,
+      timeMin: timeMin,
+      timeMax: timeMax,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 50,
+    });
+
+    const events = (response.data.items || []).map((event) => ({
+      id: event.id,
+      calendarId: targetCalendarId,
+      title: event.summary || "（無標題）",
+      description: event.description || "",
+      start: event.start.dateTime || event.start.date,
+      end: event.end.dateTime || event.end.date,
+      isAllDay: !event.start.dateTime,
+      location: event.location || "",
+    }));
+
+    res.json({ events });
+  } catch (err) {
+    console.error("Get calendar events error:", err);
+    res.status(500).json({ error: "取得行事曆事件失敗" });
+  }
+});
+
+// 匯入 Google Calendar 事件為學習計畫
+app.post("/api/calendar/import", authRequired, async (req, res) => {
+  try {
+    const { events } = req.body;
+
+    if (!events || !Array.isArray(events) || events.length === 0) {
+      return res.status(400).json({ error: "請提供要匯入的事件" });
+    }
+
+    const createdPlans = [];
+
+    for (const event of events) {
+      const startDate = new Date(event.start);
+      let endDate = event.end ? new Date(event.end) : null;
+
+      // 計算預估時間（分鐘）
+      let estimatedMinutes = 60; // 預設 60 分鐘
+      if (endDate) {
+        estimatedMinutes = Math.round((endDate - startDate) / 1000 / 60);
+        if (estimatedMinutes <= 0) estimatedMinutes = 60;
+        if (estimatedMinutes > 480) estimatedMinutes = 480; // 最多 8 小時（單日）
+      }
+
+      // 判斷是否為跨日事件（超過 1 天）
+      const isMultiDay = endDate &&
+        (endDate.getTime() - startDate.getTime()) > 24 * 60 * 60 * 1000;
+
+      // 跨日事件：只保留日期，不保留時間（讓 AI 排程）
+      let planDate = startDate;
+      let dailyMinutes = estimatedMinutes;
+      if (isMultiDay) {
+        planDate = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+        // 每日建議 60-240 分鐘（隨機）
+        dailyMinutes = Math.floor(Math.random() * (240 - 60 + 1)) + 60;
+      }
+
+      const plan = await StudyPlan.create({
+        userId: req.userId,
+        title: event.title || "從行事曆匯入",
+        subject: event.subject || "",
+        estimatedMinutes: dailyMinutes,
+        priority: event.priority || "should",
+        date: planDate,
+        endDate: isMultiDay ? endDate : null, // 只有跨日事件才存 endDate
+        status: "pending",
+      });
+
+      createdPlans.push(plan);
+    }
+
+    res.status(201).json({
+      message: `成功匯入 ${createdPlans.length} 個學習計畫`,
+      plans: createdPlans,
+    });
+  } catch (err) {
+    console.error("Import calendar events error:", err);
+    res.status(500).json({ error: "匯入失敗" });
+  }
+});
+
+// 取消連結 Google Calendar
+app.delete("/api/calendar/google/disconnect", authRequired, async (req, res) => {
+  try {
+    await CalendarToken.deleteOne({
+      userId: req.userId,
+      provider: "google",
+    });
+    res.json({ message: "已取消連結 Google Calendar" });
+  } catch (err) {
+    console.error("Disconnect calendar error:", err);
+    res.status(500).json({ error: "取消連結失敗" });
+  }
+});
 
 
 // ------------------------------- 伺服器啟動與 MongoDB 連線 區塊 ----------------------------//
