@@ -12,14 +12,23 @@ function formatDateToYMD(date) {
 
 function formatTimeOnly(dateStr) {
     if (!dateStr) return null;
-    if (dateStr.length <= 10) return null; // 只有 YYYY-MM-DD
+    if (dateStr.length <= 10) return "彈性規劃"; // 只有 YYYY-MM-DD，沒有時間
+    
+    // 檢查是否為 T00:00:00 格式（表示沒有指定時間）
+    if (dateStr.includes("T00:00:00") || dateStr.includes("T00:00")) {
+      return "彈性規劃";
+    }
+    
     const date = new Date(dateStr);
     const h = date.getHours();
     const m = date.getMinutes();
-    // 如果是 00:00，視為彈性計畫（沒有指定時間）
-    if (h === 0 && m === 0) {
+    
+    // 額外檢查：08:00 可能是 UTC 00:00 轉換來的（時區問題）
+    // 如果原始字串包含 T00:00，但被轉成 08:00，仍視為彈性規劃
+    if (h === 8 && m === 0 && dateStr.includes("T00:")) {
       return "彈性規劃";
     }
+    
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 

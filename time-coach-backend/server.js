@@ -18,14 +18,21 @@ import { google } from "googleapis";
 
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
-app.use(cors({ origin: "http://localhost:5173", })
-);
+app.use(cors());
+
+// 服務前端靜態檔案
+app.use(express.static(path.join(__dirname, "public")));
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const PORT = process.env.PORT || 4000;
@@ -1488,6 +1495,11 @@ app.delete("/api/calendar/google/disconnect", authRequired, async (req, res) => 
 
 // ------------------------------- 伺服器啟動與 MongoDB 連線 區塊 ----------------------------//
 // 連線 MongoDB
+// SPA Fallback: 所有非 API 請求都返回 index.html
+app.get("/{*splat}", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
 mongoose
   .connect(MONGODB_URI)
   .then(() => {

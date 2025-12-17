@@ -11,7 +11,13 @@ import CalendarPage from "./pages/CalendarPage";
 
 
 function PrivateRoute({ children }) {
-  const { token } = useAuth();
+  const { token, isLoading } = useAuth();
+  
+  // 等待 localStorage 讀取完成
+  if (isLoading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>載入中...</div>;
+  }
+  
   if (!token) {
     return <Navigate to="/login" replace />;
   }
