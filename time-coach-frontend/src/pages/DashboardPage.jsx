@@ -27,7 +27,6 @@ export default function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const sessionSectionRef = useRef(null);
-  const sessionStartInputRef = useRef(null);
 
   const today = new Date();
   const todayStr = formatDateToYMD(today);
@@ -565,9 +564,6 @@ export default function DashboardPage() {
                 <div className="focus-summary-label">今日專注總時數</div>
                 <div className="focus-summary">{totalFocusMinutes} 分鐘</div>
               </div>
-              <button className="btn-outline" onClick={scrollToSessionForm}>
-                ➜ 新增專注紀錄
-              </button>
             </div>
             {sessions.length > 0 && (
               <ul

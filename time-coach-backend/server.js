@@ -377,6 +377,77 @@ app.get("/api/reflections", authRequired, async (req, res) => {
   }
 });
 
+// AI 解析反思總結：POST /api/reflections/parse
+app.post("/api/reflections/parse", authRequired, async (req, res) => {
+  try {
+    const { text, date } = req.body;
+
+    if (!text || text.trim().length < 5) {
+      return res.status(400).json({ error: "請輸入今日總結（至少 5 個字）" });
+    }
+
+    const prompt = `你是一個專業的學習助手。請解析以下用戶的每日反思總結，並提取出結構化的資料。
+
+用戶說：「${text}」
+
+請根據用戶的描述，提取以下資訊：
+1. completionScore：今日完成度（0-100 的數字，根據用戶描述估算）
+2. mostProcrastinatedTask：今天最拖延或沒完成的事情（字串）
+3. whatWentWell：今天做得不錯的地方（字串）
+4. whatToImprove：明天想改善的地方或建議（字串）
+
+請只回傳 JSON 格式，格式如下：
+{
+  "completionScore": 80,
+  "mostProcrastinatedTask": "某個沒完成的任務",
+  "whatWentWell": "完成了大部分任務",
+  "whatToImprove": "留更多彈性時間"
+}
+
+如果用戶沒有提到某個欄位，請根據語境合理推測或留空字串。`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "你是一個專業的學習反思助手，只輸出 JSON 格式的回應。",
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0.3,
+    });
+
+    let content = completion.choices[0].message.content || "";
+    content = content.trim();
+    if (content.startsWith("```")) {
+      content = content.replace(/```json/i, "").replace(/```/g, "").trim();
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      console.error("AI reflection parse failed:", content);
+      return res.status(500).json({ error: "AI 解析失敗，請重試" });
+    }
+
+    res.json({
+      success: true,
+      date: date || new Date().toISOString().slice(0, 10),
+      reflection: {
+        completionScore: parsed.completionScore ?? 70,
+        mostProcrastinatedTask: parsed.mostProcrastinatedTask || "",
+        whatWentWell: parsed.whatWentWell || "",
+        whatToImprove: parsed.whatToImprove || "",
+      },
+      rawText: text,
+    });
+  } catch (err) {
+    console.error("Parse reflection error:", err);
+    res.status(500).json({ error: "AI 解析反思失敗" });
+  }
+});
 
 
 
