@@ -191,6 +191,84 @@ app.post("/api/sessions", authRequired, async (req, res) => {
 });
 
 
+// 結算今日專注：自動記錄未回報的時段為「有專心」
+app.post("/api/sessions/settle", authRequired, async (req, res) => {
+  try {
+    const { date } = req.body;
+    const userId = req.userId;
+
+    // 預設今天
+    const targetDate = date || new Date().toISOString().slice(0, 10);
+
+    // 取得該日排程
+    const scheduleDoc = await DailySchedule.findOne({
+      userId: userId,
+      date: targetDate,
+    });
+
+    if (!scheduleDoc || !scheduleDoc.schedule || scheduleDoc.schedule.length === 0) {
+      return res.status(400).json({ error: "當天沒有排程" });
+    }
+
+    // 取得該日已有的 sessions
+    const dayStart = new Date(targetDate);
+    const dayEnd = new Date(targetDate);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const existingSessions = await StudySession.find({
+      userId: userId,
+      startTime: { $gte: dayStart, $lt: dayEnd },
+    });
+
+    // 建立已記錄時段的 key 集合（用 start~end 來識別）
+    const recordedKeys = new Set(
+      existingSessions.map(s => {
+        const startH = String(s.startTime.getHours()).padStart(2, '0');
+        const startM = String(s.startTime.getMinutes()).padStart(2, '0');
+        const endH = String(s.endTime.getHours()).padStart(2, '0');
+        const endM = String(s.endTime.getMinutes()).padStart(2, '0');
+        return `${startH}:${startM}~${endH}:${endM}`;
+      })
+    );
+
+    // 找出未記錄的時段並建立 session
+    const createdSessions = [];
+    for (const block of scheduleDoc.schedule) {
+      const key = `${block.start}~${block.end}`;
+      if (!recordedKeys.has(key)) {
+        // 未記錄，建立為「有專心」的 session
+        const startTime = new Date(`${targetDate}T${block.start}:00`);
+        const endTime = new Date(`${targetDate}T${block.end}:00`);
+        const durationMinutes = Math.round((endTime - startTime) / 1000 / 60);
+
+        const session = await StudySession.create({
+          userId: userId,
+          planId: block.planId || undefined,
+          startTime: startTime,
+          endTime: endTime,
+          durationMinutes: durationMinutes,
+          interrupted: false,
+          interruptReasons: [],
+          note: `${block.title}（自動結算）`,
+        });
+
+        createdSessions.push(session);
+      }
+    }
+
+    res.status(201).json({
+      message: `成功結算 ${createdSessions.length} 個專注時段`,
+      sessions: createdSessions,
+      totalBlocks: scheduleDoc.schedule.length,
+      alreadyRecorded: scheduleDoc.schedule.length - createdSessions.length,
+    });
+  } catch (err) {
+    console.error("Settle sessions error:", err);
+    res.status(500).json({ error: "結算專注紀錄失敗" });
+  }
+});
+
+
 // 查詢專注紀錄（只看自己的）
 app.get("/api/sessions", authRequired, async (req, res) => {
   try {

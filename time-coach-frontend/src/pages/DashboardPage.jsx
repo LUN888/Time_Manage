@@ -52,20 +52,20 @@ export default function DashboardPage() {
   // AI 自動排程的結果
   const [autoSchedule, setAutoSchedule] = useState(null); // { date, schedule, summary }
   const [autoScheduling, setAutoScheduling] = useState(false);
+  const [settling, setSettling] = useState(false); // 結算中
 
   // ---- 專注紀錄相關 ----
   const [sessions, setSessions] = useState([]);
   const [sessionsError, setSessionsError] = useState("");
   const [sessionsLoading, setSessionsLoading] = useState(true);
 
-  const [sessionForm, setSessionForm] = useState({
-    startTime: `${todayStr}T20:00`,
-    endTime: `${todayStr}T20:30`,
-    interrupted: false,
-    interruptReasons: "",
-    note: "",
+  // 分心回報 modal
+  const [distractionModal, setDistractionModal] = useState({
+    open: false,
+    block: null, // { start, end, title, planId }
+    reasons: "",
+    submitting: false,
   });
-  const [creatingSession, setCreatingSession] = useState(false);
 
   // ---- 讀取資料 ----
   const fetchPlans = async () => {
@@ -257,6 +257,29 @@ export default function DashboardPage() {
     }
   };
 
+  // 結算今日專注紀錄
+  const handleSettleSessions = async () => {
+    if (!autoSchedule) {
+      alert("請先產生今日排程");
+      return;
+    }
+    
+    setSettling(true);
+    try {
+      const res = await api.post("/api/sessions/settle", {
+        date: todayStr,
+      });
+      
+      alert(res.data.message);
+      await fetchSessions(); // 重新載入專注紀錄
+    } catch (err) {
+      console.error(err);
+      alert(err.response?.data?.error || "結算失敗");
+    } finally {
+      setSettling(false);
+    }
+  };
+
   // 🧠 呼叫 AI 自動排程今天
   const handleAutoScheduleToday = async () => {
     setAutoScheduling(true);
@@ -273,21 +296,34 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ 在 AI 排程的某一個時段上，紀錄「這段有分心」
-  const handleMarkDistractedOnBlock = async (block) => {
+  // ✅ 開啟分心回報 modal
+  const openDistractionModal = (block) => {
     if (!autoSchedule) return;
+    setDistractionModal({
+      open: true,
+      block: block,
+      reasons: "",
+      submitting: false,
+    });
+  };
 
-    const reasonStr = window.prompt(
-      `你在「${block.start} ~ ${block.end}：${block.title}」這段時間的分心原因是什麼？\n可以用「，」分隔，例如：手機，滑 IG，聊天`
-    );
-
-    if (!reasonStr) return;
-
-    const reasons = reasonStr
-      .split("，")
+  // 提交分心紀錄
+  const submitDistraction = async () => {
+    if (!distractionModal.block || !autoSchedule) return;
+    
+    const block = distractionModal.block;
+    const reasons = distractionModal.reasons
+      .split(/[，,]/)
       .map((s) => s.trim())
       .filter(Boolean);
+    
+    if (reasons.length === 0) {
+      alert("請輸入分心原因");
+      return;
+    }
 
+    setDistractionModal((prev) => ({ ...prev, submitting: true }));
+    
     try {
       const startLocal = new Date(`${autoSchedule.date}T${block.start}:00`);
       const endLocal = new Date(`${autoSchedule.date}T${block.end}:00`);
@@ -302,26 +338,17 @@ export default function DashboardPage() {
       });
 
       await fetchSessions();
-      alert("已記錄這段時間的分心情況！");
+      setDistractionModal({ open: false, block: null, reasons: "", submitting: false });
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.error || "紀錄分心時發生錯誤");
+      setDistractionModal((prev) => ({ ...prev, submitting: false }));
     }
   };
-  //-------功能：捲動到專注紀錄表單並聚焦開始時間欄位-------
-  const scrollToSessionForm = () => {
-    if (sessionSectionRef.current) {
-      sessionSectionRef.current.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }
 
-    setTimeout(() => {
-      if (sessionStartInputRef.current) {
-        sessionStartInputRef.current.focus();
-      }
-    }, 400);
+  // 關閉 modal
+  const closeDistractionModal = () => {
+    setDistractionModal({ open: false, block: null, reasons: "", submitting: false });
   };
 
   // ------------ 渲染頁面 ------------
@@ -467,7 +494,7 @@ export default function DashboardPage() {
                     )}
                     <button
                       type="button"
-                      onClick={() => handleMarkDistractedOnBlock(b)}
+                      onClick={() => openDistractionModal(b)}
                       style={{
                         marginTop: 4,
                         fontSize: 11,
@@ -495,6 +522,20 @@ export default function DashboardPage() {
                   小結：{autoSchedule.summary}
                 </p>
               )}
+              
+              {/* 結算按鈕 */}
+              <button
+                className="btn-primary"
+                onClick={handleSettleSessions}
+                disabled={settling}
+                style={{
+                  marginTop: 16,
+                  width: "100%",
+                  background: "linear-gradient(135deg, #10b981, #059669)",
+                }}
+              >
+                {settling ? "結算中..." : "✅ 結算今日專注紀錄"}
+              </button>
             </>
           ) : (
             <p
@@ -713,7 +754,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ===== 今日專注紀錄（詳細） ===== */}
+      {/* ===== 今日專注紀錄（只顯示，不提供手動新增） ===== */}
       <section
         ref={sessionSectionRef}
         className="glass-card"
@@ -721,95 +762,107 @@ export default function DashboardPage() {
       >
         <h2 style={{ marginTop: 0 }}>今日專注紀錄</h2>
 
-        <form onSubmit={handleCreateSession} style={{ marginBottom: 16 }}>
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-          >
-            <div>
-              <label className="label-light">開始時間</label>
-              <input
-                ref={sessionStartInputRef}
-                type="datetime-local"
-                name="startTime"
-                value={sessionForm.startTime}
-                onChange={handleSessionChange}
-                className="input-dark"
-              />
-            </div>
-            <div>
-              <label className="label-light">結束時間</label>
-              <input
-                type="datetime-local"
-                name="endTime"
-                value={sessionForm.endTime}
-                onChange={handleSessionChange}
-                className="input-dark"
-              />
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <label style={{ fontSize: 13 }}>
-              <input
-                type="checkbox"
-                name="interrupted"
-                checked={sessionForm.interrupted}
-                onChange={handleSessionChange}
-                style={{ marginRight: 6 }}
-              />
-              中途有分心
-            </label>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <label className="label-light">分心原因（用「，」分隔）</label>
-            <input
-              name="interruptReasons"
-              className="input-dark"
-              value={sessionForm.interruptReasons}
-              onChange={handleSessionChange}
-              placeholder="手機，滑 IG，聊天"
-            />
-          </div>
-          <div style={{ marginTop: 8, marginBottom: 8 }}>
-            <label className="label-light">備註</label>
-            <input
-              name="note"
-              className="input-dark"
-              value={sessionForm.note}
-              onChange={handleSessionChange}
-            />
-          </div>
-          <button
-            type="submit"
-            className="btn-primary"
-            disabled={creatingSession}
-          >
-            {creatingSession ? "新增中..." : "新增專注紀錄"}
-          </button>
-        </form>
-
         {sessionsError && <p style={{ color: "salmon" }}>{sessionsError}</p>}
         {sessionsLoading ? (
           <p>載入中...</p>
         ) : sessions.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            今天還沒有專注紀錄。
+            今天還沒有專注紀錄。使用上方時間表的分心回報或結算功能來記錄。
           </p>
         ) : (
           <ul style={{ fontSize: 13, paddingLeft: 18 }}>
             {sessions.map((s) => (
-              <li key={s._id}>
-                {new Date(s.startTime).toLocaleTimeString()} ~{" "}
-                {new Date(s.endTime).toLocaleTimeString()} ，{s.durationMinutes}{" "}
-                分鐘
-                {s.interrupted && "（有分心）"}
-                {s.interruptReasons && s.interruptReasons.length > 0 && (
-                  <>，原因：{s.interruptReasons.join("、")}</>
+              <li key={s._id} style={{ marginBottom: 6 }}>
+                <span style={{ color: s.interrupted ? "salmon" : "#10b981" }}>
+                  {s.interrupted ? "😵" : "✅"}
+                </span>{" "}
+                {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ~{" "}
+                {new Date(s.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
+                  {s.durationMinutes} 分鐘
+                </span>
+                {s.note && (
+                  <span style={{ marginLeft: 8 }}>
+                    {s.note}
+                  </span>
+                )}
+                {s.interrupted && s.interruptReasons && s.interruptReasons.length > 0 && (
+                  <span style={{ color: "salmon", marginLeft: 8 }}>
+                    （{s.interruptReasons.join("、")}）
+                  </span>
                 )}
               </li>
             ))}
           </ul>
         )}
       </section>
+
+      {/* 分心回報 Modal */}
+      {distractionModal.open && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={closeDistractionModal}
+        >
+          <div
+            style={{
+              background: "linear-gradient(145deg, #1e293b, #0f172a)",
+              border: "1px solid rgba(148, 163, 184, 0.2)",
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: 400,
+              width: "90%",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ margin: "0 0 16px 0", fontSize: 16 }}>
+              😵 回報分心 - {distractionModal.block?.title}
+            </h3>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px 0" }}>
+              {distractionModal.block?.start} ~ {distractionModal.block?.end}
+            </p>
+            <label style={{ fontSize: 13, color: "var(--text-muted)", display: "block", marginBottom: 8 }}>
+              分心原因（用逗號分隔）
+            </label>
+            <input
+              type="text"
+              className="input-dark"
+              placeholder="手機、滑 IG、聊天"
+              value={distractionModal.reasons}
+              onChange={(e) => setDistractionModal((prev) => ({ ...prev, reasons: e.target.value }))}
+              style={{ width: "100%", marginBottom: 16 }}
+              autoFocus
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                className="btn-outline"
+                onClick={closeDistractionModal}
+                disabled={distractionModal.submitting}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary"
+                onClick={submitDistraction}
+                disabled={distractionModal.submitting}
+                style={{ background: "linear-gradient(135deg, #ef4444, #dc2626)" }}
+              >
+                {distractionModal.submitting ? "記錄中..." : "確認記錄"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
